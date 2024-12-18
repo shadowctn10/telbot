@@ -19,10 +19,10 @@ AudioSegment.converter = ffmpeg.get_ffmpeg_exe()
 AudioSegment.ffprobe = ffmpeg.get_ffmpeg_exe()
 
 # --- تابع برای پاک کردن پیام‌های قدیمی ---
-async def clear_pending_updates(app):
-    updates = await app.bot.get_updates(offset=-1)
+async def clear_pending_updates(bot):
+    updates = await bot.get_updates(offset=-1)
     if updates:
-        await app.bot.get_updates(offset=updates[-1].update_id + 1)
+        await bot.get_updates(offset=updates[-1].update_id + 1)
 
 # --- تابع برای بررسی کاربری که ربات را اضافه کرده و گزارش دادن ---
 async def check_admin_and_report(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
@@ -127,7 +127,7 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     # حذف آپدیت‌های قدیمی هنگام راه‌اندازی
-    app.post_init(clear_pending_updates)
+    app.bot.loop.run_until_complete(clear_pending_updates(app.bot))
 
     # هندلرها
     app.add_handler(CommandHandler("start", start))
