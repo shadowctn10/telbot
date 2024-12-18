@@ -1,6 +1,5 @@
 import os
 import requests
-from deep_translator import GoogleTranslator  # کتابخانه ترجمه
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
 from pydub import AudioSegment
@@ -34,16 +33,47 @@ def get_lyrics(song_name: str) -> str:
     else:
         return "خطا در ارتباط با سرور لیریک!"
 
-# --- تابع ترجمه متن با GoogleTranslator ---
-def translate_with_detect(text: str) -> str:
-    try:
-        translated = GoogleTranslator(source="auto", target="fa").translate(text)  # ترجمه به فارسی
-        return f"🌐 ترجمه فارسی:\n{translated}"
-    except Exception as e:
-        return f"خطا در ترجمه متن: {str(e)}"
+# --- تابع برای پردازش و ایجاد دمو ---
+async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.audio:
+        file = update.message.audio
+        file_id = file.file_id
+        audio_name = file.file_name if hasattr(file, "file_name") else "Demo"
 
-# --- هندلر برای دکمه Translate ---
-async def translate_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # دانلود فایل صوتی
+        new_file = await context.bot.get_file(file_id)
+        file_path = "input_audio.ogg"
+        await new_file.download_to_drive(file_path)
+
+        try:
+            # ایجاد دمو از فایل صوتی
+            audio = AudioSegment.from_file(file_path)
+            demo_audio = audio[:DEMO_DURATION_MS]
+            demo_audio.export("demo_audio.ogg", format="ogg")
+
+            # ارسال دمو همراه با دکمه Lyrics
+            keyboard = [[InlineKeyboardButton("🎶 Lyrics", callback_data=f"lyrics:{audio_name}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            with open("demo_audio.ogg", "rb") as voice_file:
+                await context.bot.send_voice(
+                    chat_id=update.effective_chat.id,
+                    voice=voice_file,
+                    caption=audio_name,
+                    reply_to_message_id=update.message.message_id,
+                    reply_markup=reply_markup
+                )
+
+            # حذف فایل‌های موقت
+            os.remove("input_audio.ogg")
+            os.remove("demo_audio.ogg")
+        except Exception as e:
+            await update.message.reply_text(f"خطا در پردازش فایل صوتی: {str(e)}")
+    else:
+        await update.message.reply_text("لطفاً یک فایل صوتی ارسال کنید!")
+
+# --- هندلر برای دکمه Lyrics ---
+async def lyrics_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
@@ -51,15 +81,12 @@ async def translate_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     song_name = query.data.split(":")[1]
     lyrics = get_lyrics(song_name)
 
-    # ترجمه متن
-    translated_lyrics = translate_with_detect(lyrics)
+    # ارسال لیریک به پیوی کاربر
+    user_id = query.from_user.id  # شناسه کاربر
+    await context.bot.send_message(chat_id=user_id, text=lyrics)
+    await query.message.reply_text("🎶 متن آهنگ به پیوی شما ارسال شد!")
 
-    # ارسال ترجمه به پیوی کاربر
-    user_id = query.from_user.id
-    await context.bot.send_message(chat_id=user_id, text=translated_lyrics)
-    await query.message.reply_text("🌐 ترجمه متن آهنگ به پیوی شما ارسال شد!")
-
-# --- سایر توابع (مانند پردازش دمو و دکمه Lyrics) ---
+# --- تابع شروع ربات ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("سلام! آهنگ خود را ارسال کنید تا دمو و متن لیریک آن را دریافت کنید. 🎵")
 
@@ -67,7 +94,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(translate_button, pattern="^translate:"))
+    app.add_handler(MessageHandler(filters.AUDIO, process_audio))
+    app.add_handler(CallbackQueryHandler(lyrics_button, pattern="^lyrics:"))
 
     print("ربات در حال اجراست...")
     app.run_polling()
