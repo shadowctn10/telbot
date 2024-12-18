@@ -1,52 +1,18 @@
 import os
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
-    CallbackQueryHandler, ChatMemberHandler, filters
-)
+from deep_translator import GoogleTranslator  # کتابخانه ترجمه
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
 from pydub import AudioSegment
-import imageio_ffmpeg as ffmpeg
 
 # --- متغیرهای مهم ---
 TOKEN = "7830811506:AAHviqGsjxf1S57-W46F5bu9Rh9kuZIQ-fY"  # توکن ربات تلگرام
 GENIUS_API_TOKEN = "1k3ljpOFJhSQs52wnj8MaAnfFqVfLGOzBXUhBakw7aD1SAvQsVqih4RK8ds8CLNx"  # توکن API سایت Genius
-OWNER_ID = 5668163693  # شناسه تلگرام شما
 DEMO_DURATION_MS = 60000  # مدت زمان دمو (1 دقیقه)
 
-# تنظیم خودکار مسیر FFmpeg
-AudioSegment.converter = ffmpeg.get_ffmpeg_exe()
-AudioSegment.ffprobe = ffmpeg.get_ffmpeg_exe()
-
-# --- تابع برای پاک کردن پیام‌های قدیمی ---
-async def clear_pending_updates(bot):
-    updates = await bot.get_updates(offset=-1)
-    if updates:
-        await bot.get_updates(offset=updates[-1].update_id + 1)
-
-# --- تابع برای بررسی کاربری که ربات را اضافه کرده و گزارش دادن ---
-async def check_admin_and_report(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    inviter = update.invite_link.creator_user_id if update.invite_link else None
-
-    if update.new_chat_member.status == "member":  # زمانی که ربات به گروه اضافه شد
-        # گزارش اضافه شدن ربات
-        group_info = f"👥 ربات به گروه اضافه شد:\n" \
-                     f"📌 نام گروه: {chat.title}\n" \
-                     f"🆔 شناسه گروه: {chat.id}\n"
-        if inviter:
-            group_info += f"👤 اضافه‌کننده: {inviter}"
-
-        # ارسال گزارش به مالک
-        await context.bot.send_message(chat_id=OWNER_ID, text=group_info)
-
-        # بررسی مالک گروه
-        if inviter != OWNER_ID:
-            await context.bot.send_message(
-                chat_id=chat.id,
-                text="⛔ فقط مالک ربات اجازه اضافه کردن این ربات به گروه را دارد. ربات در حال خروج است..."
-            )
-            await context.bot.leave_chat(chat.id)
+# تنظیم مسیر FFmpeg و ffprobe
+AudioSegment.converter = r"C:\ffmpeg-7.0.2-essentials_build\bin\ffmpeg.exe"
+AudioSegment.ffprobe = r"C:\ffmpeg-7.0.2-essentials_build\bin\ffprobe.exe"
 
 # --- تابع برای دریافت لیریک ---
 def get_lyrics(song_name: str) -> str:
@@ -65,47 +31,16 @@ def get_lyrics(song_name: str) -> str:
     else:
         return "خطا در ارتباط با سرور لیریک!"
 
-# --- تابع برای پردازش و ایجاد دمو ---
-async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.audio:
-        file = update.message.audio
-        file_id = file.file_id
-        audio_name = file.file_name if hasattr(file, "file_name") else "Demo"
+# --- تابع ترجمه متن با GoogleTranslator ---
+def translate_with_detect(text: str) -> str:
+    try:
+        translated = GoogleTranslator(source="auto", target="fa").translate(text)  # ترجمه به فارسی
+        return f"🌐 ترجمه فارسی:\n{translated}"
+    except Exception as e:
+        return f"خطا در ترجمه متن: {str(e)}"
 
-        # دانلود فایل صوتی
-        new_file = await context.bot.get_file(file_id)
-        file_path = "input_audio.ogg"
-        await new_file.download_to_drive(file_path)
-
-        try:
-            # ایجاد دمو از فایل صوتی
-            audio = AudioSegment.from_file(file_path)
-            demo_audio = audio[:DEMO_DURATION_MS]
-            demo_audio.export("demo_audio.ogg", format="ogg")
-
-            # ارسال دمو همراه با دکمه Lyrics
-            keyboard = [[InlineKeyboardButton("🎶 Lyrics", callback_data=f"lyrics:{audio_name}")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            with open("demo_audio.ogg", "rb") as voice_file:
-                await context.bot.send_voice(
-                    chat_id=update.effective_chat.id,
-                    voice=voice_file,
-                    caption=audio_name,
-                    reply_to_message_id=update.message.message_id,
-                    reply_markup=reply_markup
-                )
-
-            # حذف فایل‌های موقت
-            os.remove("input_audio.ogg")
-            os.remove("demo_audio.ogg")
-        except Exception as e:
-            await update.message.reply_text(f"خطا در پردازش فایل صوتی: {str(e)}")
-    else:
-        await update.message.reply_text("لطفاً یک فایل صوتی ارسال کنید!")
-
-# --- هندلر برای دکمه Lyrics ---
-async def lyrics_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- هندلر برای دکمه Translate ---
+async def translate_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
@@ -113,31 +48,26 @@ async def lyrics_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     song_name = query.data.split(":")[1]
     lyrics = get_lyrics(song_name)
 
-    # ارسال لیریک به پیوی کاربر
-    user_id = query.from_user.id  # شناسه کاربر
-    await context.bot.send_message(chat_id=user_id, text=lyrics)
-    await query.message.reply_text("🎶 متن آهنگ به پیوی شما ارسال شد!")
+    # ترجمه متن
+    translated_lyrics = translate_with_detect(lyrics)
 
-# --- تابع شروع ربات ---
+    # ارسال ترجمه به پیوی کاربر
+    user_id = query.from_user.id
+    await context.bot.send_message(chat_id=user_id, text=translated_lyrics)
+    await query.message.reply_text("🌐 ترجمه متن آهنگ به پیوی شما ارسال شد!")
+
+# --- سایر توابع (مانند پردازش دمو و دکمه Lyrics) ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("سلام! آهنگ خود را ارسال کنید تا دمو و متن لیریک آن را دریافت کنید. 🎵")
 
 # --- تابع اصلی برای اجرای ربات ---
-async def main():
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
-    # حذف آپدیت‌های قدیمی
-    await clear_pending_updates(app.bot)
-
-    # هندلرها
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.AUDIO, process_audio))
-    app.add_handler(CallbackQueryHandler(lyrics_button, pattern="^lyrics:"))
-    app.add_handler(ChatMemberHandler(check_admin_and_report, ChatMemberHandler.MY_CHAT_MEMBER))
+    app.add_handler(CallbackQueryHandler(translate_button, pattern="^translate:"))
 
     print("ربات در حال اجراست...")
-    await app.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
