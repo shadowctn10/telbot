@@ -2,4 +2,4 @@ python-telegram-bot==20.3
 pydub
 requests
 imageio[ffmpeg]
-deep-translator
+
