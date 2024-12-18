@@ -5,19 +5,24 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
     CallbackQueryHandler, ChatMemberHandler, filters
 )
-TOKEN = "7830811506:AAHviqGsjxf1S57-W46F5bu9Rh9kuZIQ-fY"  # توکن ربات تلگرام
-GENIUS_API_TOKEN = "1k3ljpOFJhSQs52wnj8MaAnfFqVfLGOzBXUhBakw7aD1SAvQsVqih4RK8ds8CLNx"  # توکن API سایت Genius
-OWNER_ID = 5668163693  # شناسه تلگرام شما (جایگزین کنید)
-DEMO_DURATION_MS = 60000  # مدت زمان دمو (1 دقیقه)
-
-# تنظیم مسیر FFmpeg و ffprobe
 from pydub import AudioSegment
 import imageio_ffmpeg as ffmpeg
+
+# --- متغیرهای مهم ---
+TOKEN = "7830811506:AAHviqGsjxf1S57-W46F5bu9Rh9kuZIQ-fY"  # توکن ربات تلگرام
+GENIUS_API_TOKEN = "1k3ljpOFJhSQs52wnj8MaAnfFqVfLGOzBXUhBakw7aD1SAvQsVqih4RK8ds8CLNx"  # توکن API سایت Genius
+OWNER_ID = 5668163693  # شناسه تلگرام شما
+DEMO_DURATION_MS = 60000  # مدت زمان دمو (1 دقیقه)
 
 # تنظیم خودکار مسیر FFmpeg
 AudioSegment.converter = ffmpeg.get_ffmpeg_exe()
 AudioSegment.ffprobe = ffmpeg.get_ffmpeg_exe()
 
+# --- تابع برای پاک کردن پیام‌های قدیمی ---
+async def clear_pending_updates(app):
+    updates = await app.bot.get_updates(offset=-1)
+    if updates:
+        await app.bot.get_updates(offset=updates[-1].update_id + 1)
 
 # --- تابع برای بررسی کاربری که ربات را اضافه کرده و گزارش دادن ---
 async def check_admin_and_report(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
@@ -119,7 +124,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- تابع اصلی برای اجرای ربات ---
 def main():
-    app = ApplicationBuilder().token(TOKEN).drop_pending_updates(True).build()
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    # حذف آپدیت‌های قدیمی هنگام راه‌اندازی
+    app.post_init(clear_pending_updates)
 
     # هندلرها
     app.add_handler(CommandHandler("start", start))
@@ -132,4 +140,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
